@@ -84,7 +84,7 @@ def func(trial):
     
 
     def create_model():
-        n_layers = trial.suggest_int('n_layers', 2, 4, log=True)
+        n_layers = trial.suggest_int('n_layers', 2, 16, log=True)
         layers = []
         for i in range(n_layers):
             output_size = trial.suggest_int('n_units_l{}'.format(i), 32, 2048, log=True)
