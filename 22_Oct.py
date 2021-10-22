@@ -84,10 +84,10 @@ def func(trial):
     
 
     def create_model():
-        n_layers = trial.suggest_int('n_layers', 2,4)
+        n_layers = trial.suggest_int('n_layers', 2, 4, log=True)
         layers = []
         for i in range(n_layers):
-            output_size = trial.suggest_int('n_units_l{}'.format(i), 700, 1300)
+            output_size = trial.suggest_int('n_units_l{}'.format(i), 32, 2048, log=True)
             layers.append(nn.Linear(param['input_size'], output_size))
             layers.append(nn.ReLU())            
             param['input_size'] = output_size
@@ -109,6 +109,7 @@ def func(trial):
             inputs, target = batch
             inputs = inputs.float().to(param['device'])
             target = target.to(param['device'])
+            target = target.type(torch.LongTensor)
             output = model(inputs)
             loss = criterion(output, target)
             loss.backward()
@@ -124,6 +125,7 @@ def func(trial):
             inputs = inputs.float().to(param['device'])
             output = model(inputs)
             target = target.to(param['device'])
+            target = target.type(torch.LongTensor)
             loss = criterion(output, target)
             valid_loss += loss.data.item()
             correct = torch.eq(torch.max(F.softmax(output), dim=1)[1],target).view(-1) 
@@ -132,16 +134,16 @@ def func(trial):
         
     accuracy = num_correct / num_examples
     validation_loss = valid_loss/len(valid_loader)
-    print('\nOptimize loss:::Epoch: {}, Training Loss= {:.5f}, Valid Loss= {:.5f}, Accuracy= {:.5f}'
-              .format(epoch, training_loss, validation_loss, accuracy))
+    print('Training Loss= {:.5f}, Valid Loss= {:.5f}, Accuracy= {:.5f}'
+              .format(training_loss, validation_loss, accuracy))
         
     return validation_loss
 
 
 study = optuna.create_study(study_name='22_Oct', storage='sqlite:///irstudyOct.db', load_if_exists=True, direction="minimize")
 study.optimize(func, n_trials=900)
-df_results = study.trials_dataframe(attrs=('number', 'value', 'params'))
-df_results.to_pickle('22_Oct.pkl')
-df_results.to_csv('22_Oct.csv')
+#df_results = study.trials_dataframe(attrs=('number', 'value', 'params'))
+#df_results.to_pickle('22_Oct.pkl')
+#df_results.to_csv('22_Oct.csv')
 print('Best value: {} (params: {})\n'.format(study.best_value, study.best_params))
 
