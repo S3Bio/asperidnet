@@ -1,1 +1,1 @@
-# Asper_IR_Classification
+# Deep Neural Network for Aspergillus Classification using FT-IR
