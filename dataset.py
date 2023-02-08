@@ -1,39 +1,47 @@
+import torch
 import pandas as pd
 from sklearn.preprocessing import LabelEncoder
 
 class SpectralDataset:
     def __init__(self, filename, datafor='train'):
         data = pd.read_csv(filename)
-        cols =[x for x in data.columns if x not in ['target']]
-        rowused = []
-        for i in range (len(data)):
-                if i % 10 == 0:
-                    rowused.append('test')
-                elif i % 10 == 1:
-                    rowused.append('validate')
-                else:
-                    rowused.append('train')
-                            
-        data['rowused'] = rowused
-        if datafor == 'train':
-            selected_data = data.loc[data['rowused'] == 'train', :]
-        elif datafor == 'validate':
-            selected_data = data.loc[data['rowused'] == 'validate', :]
-        elif datafor == 'test':
-            selected_data = data.loc[data['rowused'] == 'test', :]
-        elif datafor == 'all':
-            selected_data = data
-        else:
-            raise("datafor supports only test train and validate")
-        
-        self.X = selected_data[cols]
+        data.drop_duplicates()
+
+        self.X = data.drop(['target'], axis=1)
+
         le = LabelEncoder()
-        data_y = selected_data.loc[:, 'target']
-        self.y = le.fit_transform(data_y.values.ravel())
+        self.y = data.loc[:, 'target']
+        le.fit(self.y.values.ravel())
+
+        if datafor == 'train':
+            filter = [i % 10 != 0 and i % 10 != 1 for i in range(len(data))]
+        elif datafor == 'validate':
+            filter = [i % 10 ==  1 for i in range(len(data))]
+        elif datafor == 'test':
+            filter = [i % 10 ==  0 for i in range(len(data))]
+        else:
+            filter = [True for i in range(len(data))]
+        
+        self.X = self.X[filter]
+        self.y = self.y[filter]
+        self.y = le.transform(self.y.values.ravel())
         self.y = self.y.reshape(-1)
         
     def __len__(self):
         return len(self.X)
     
     def __getitem__(self, index):
-        return (self.X.iloc[index, :].to_numpy(), self.y[index])
+        return (torch.tensor(self.X.iloc[index, :], dtype=torch.float32).view(1,-1), torch.tensor(self.y[index]))
+    
+if __name__ == '__main__':
+    dataset = SpectralDataset('SR-FTIR data.csv', datafor = 'train')
+
+    from torch.utils.data import DataLoader
+    train_loader = DataLoader(dataset)
+
+    for x,y in train_loader:
+        # print(x.shape)
+        print(y)
+        # x = x.view(x.shape[0], 1,-1)
+        print(y.shape)
+        break

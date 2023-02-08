@@ -1,0 +1,7 @@
+.DS_Store
+run_configs/
+model_weights/
+pip-wheel-metadata/
+lightning_logs/
+.vscode/
+__pycache__
