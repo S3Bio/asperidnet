@@ -37,16 +37,16 @@ class Model(pl.LightningModule):
             createConvLayerStack(64, conv_kernel_size=3, conv_stride=1, pool_kernel_size=3, pool_stride=3), #3-6
             createConvLayerStack(128, conv_kernel_size=3, conv_stride=1, pool_kernel_size=3, pool_stride=3), #7-10
             createConvLayerStack(256, conv_kernel_size=3, conv_stride=1, pool_kernel_size=3, pool_stride=3), #11-14
-            createConvLayerStack(512, conv_kernel_size=3, conv_stride=1, pool_kernel_size=3, pool_stride=3), #15-18
-            # createConvLayerStack(1024, conv_kernel_size=3, conv_stride=1, pool_kernel_size=3, pool_stride=3), #19-22
-            # nn.Flatten(),
-            # nn.Linear(2048, 512),
-            # nn.ReLU(),
-            # nn.Linear(512, 256),
-            # nn.ReLU(),
-            # nn.Linear(256, 128),
-            # nn.ReLU(),
-            # nn.Linear(128, 25)
+            createConvLayerStack(512, conv_kernel_size=3, conv_stride=1, pool_kernel_size=3, pool_stride=3, conv_padding=1), #15-18
+            createConvLayerStack(1024, conv_kernel_size=3, conv_stride=1, pool_kernel_size=3, pool_stride=3, conv_padding=1), #19-22
+            nn.Flatten(),
+            nn.Linear(2048, 512),
+            nn.ReLU(),
+            nn.Linear(512, 256),
+            nn.ReLU(),
+            nn.Linear(256, 128),
+            nn.ReLU(),
+            nn.Linear(128, 25)
         )
         
     def forward(self, x):
