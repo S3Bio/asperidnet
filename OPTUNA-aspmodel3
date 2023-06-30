@@ -58,7 +58,7 @@ def func(trial):
         'lr' : 1e-4, 
         'optimizer_name' : 'Adam'}
 
-    #Combine data 'train'and 'validate'
+    #Data for hyperparameter tuning
     spectrum_train = SpectralDataset('dataframe.csv', datafor = 'train')    
     
     #Split data for Cross validation
