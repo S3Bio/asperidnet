@@ -1,0 +1,211 @@
+import pandas as pd
+import numpy as np
+import torch
+import torch.optim as optim
+import torch.nn as nn
+from sklearn.preprocessing import LabelEncoder
+from sklearn.model_selection import KFold
+import optuna
+import torch.nn.functional as F
+from torch.utils.data import DataLoader
+from torch.utils.data import SubsetRandomSampler
+from optuna.study import StudyDirection
+from optuna._study_summary import StudySummary
+
+
+class SpectralDataset:
+    def __init__(self, filename, datafor='train'):
+        data = pd.read_csv(filename)        
+        cols =[x for x in data.columns if x not in ['target']]
+        rowused = []
+        for i in range(len(data)):
+            if i % 10 == 0:
+                rowused.append('test')
+                
+            else:
+                rowused.append('train')
+                            
+        data['rowused'] = rowused
+        
+        if datafor == 'train':
+            selected_data = data.loc[data['rowused'] == 'train', :]
+
+        elif datafor == 'test':
+            selected_data = data.loc[data['rowused'] == 'test', :]
+            
+        else:
+            raise("datafor supports only test and train")
+        
+        self.X = selected_data[cols]
+        le = LabelEncoder()
+        data_y = selected_data.loc[:, 'target']
+        self.y = le.fit_transform(data_y.values.ravel())
+        self.y = self.y.reshape(-1)
+    
+    def __len__(self):
+        return len(self.X)
+    
+    def __getitem__(self, index):
+        return (self.X.iloc[index, :].to_numpy(), self.y[index])
+
+def func(trial):
+    param = {
+        'device' : 'cpu',
+        'epoch_num' : 30,
+        'input_size' : 1536,
+        'classes' : 22,
+        'batch_size' : 128, 
+        'lr' : 1e-4, 
+        'optimizer_name' : 'Adam'}
+
+    #Data for hyperparameter tuning
+    spectrum_train = SpectralDataset('dataframe.csv', datafor = 'train')    
+    
+    #Split data for Cross validation
+    k = 5
+    splits=KFold(n_splits=k,shuffle=True,random_state=0)
+    
+    def create_model():
+        layers = []
+        layers.append(nn.Sequential(nn.Conv1d(1,64, kernel_size=3, stride=1),
+                                    nn.BatchNorm1d(64),
+                                    nn.ReLU()))
+        layers.append(nn.Sequential(nn.Conv1d(64, 64, kernel_size=3, stride=1),
+                                    nn.BatchNorm1d(64),
+                                    nn.ReLU(),
+                                    nn.MaxPool1d(kernel_size=3, stride=3)))
+        layers.append(nn.Sequential(nn.Conv1d(64,128, kernel_size=3, stride=1),
+                                    nn.BatchNorm1d(128),
+                                    nn.ReLU()))
+        layers.append(nn.Sequential(nn.Conv1d(128, 128, kernel_size=3, stride=1),
+                                    nn.BatchNorm1d(128),
+                                    nn.ReLU(),
+                                    nn.MaxPool1d(kernel_size=3, stride=3)))
+        layers.append(nn.Sequential(nn.Conv1d(128,256, kernel_size=3, stride=1),
+                                    nn.BatchNorm1d(256),
+                                    nn.ReLU()))
+        layers.append(nn.Sequential(nn.Conv1d(256,256, kernel_size=3, stride=1),
+                                    nn.BatchNorm1d(256),
+                                    nn.ReLU()))
+        layers.append(nn.Sequential(nn.Conv1d(256, 256, kernel_size=3, stride=1),
+                                    nn.BatchNorm1d(256),
+                                    nn.ReLU(),
+                                    nn.MaxPool1d(kernel_size=3, stride=3)))
+        layers.append(nn.Sequential(nn.Conv1d(256, 512, kernel_size=3, stride=1),
+                                    nn.BatchNorm1d(512),
+                                    nn.ReLU()))
+        layers.append(nn.Sequential(nn.Conv1d(512, 512, kernel_size=3, stride=1),
+                                    nn.BatchNorm1d(512),
+                                    nn.ReLU()))
+        layers.append(nn.Sequential(nn.Conv1d(512, 512, kernel_size=3, stride=1),
+                                    nn.BatchNorm1d(512),
+                                    nn.ReLU(),
+                                    nn.MaxPool1d(kernel_size=3, stride=3)))
+        layers.append(nn.Sequential(nn.Conv1d(512, 512, kernel_size=3, stride=1),
+                                    nn.BatchNorm1d(512),
+                                    nn.ReLU()))
+        layers.append(nn.Sequential(nn.Conv1d(512, 512, kernel_size=3, stride=1),
+                                    nn.BatchNorm1d(512),
+                                    nn.ReLU()))
+        layers.append(nn.Sequential(nn.Conv1d(512, 512, kernel_size=3, stride=1),
+                                    nn.BatchNorm1d(512),
+                                    nn.ReLU(),
+                                    nn.MaxPool1d(kernel_size=3, stride=3)))
+
+        layers.append(nn.Flatten())
+        n_hidlayers = trial.suggest_int('n_hidlayers', 2, 4)
+        for i in range(n_hidlayers):
+            output_size = trial.suggest_categorical('n_units_layer {}'.format(i+1), 
+                                                    [32, 64, 128, 256, 512, 1024, 2048, 4096, 8192])
+            layers.append(nn.Linear(param['input_size'], output_size))
+            layers.append(nn.ReLU())            
+            param['input_size'] = output_size
+        layers.append(nn.Linear(output_size, param['classes']))
+        layers.append(nn.LogSoftmax(dim=1))
+        return nn.Sequential(*layers)
+    
+    def reset_weights(m):
+        if isinstance(m, nn.Conv1d) or isinstance(m, nn.Linear):
+            m.reset_parameters()
+            
+    model = create_model()
+    optimizer = getattr(optim, param['optimizer_name'])(model.parameters(), lr=param['lr']) 
+    criterion = nn.CrossEntropyLoss()
+    history = {'training_loss': [], 'valid_loss': [],'train_accuracy':[],'val_accuracy':[]}
+    
+    for fold, (train_index, val_index) in enumerate(splits.split(spectrum_train)):
+        print('\nFold {}'.format(fold+1))
+        train_sampler = SubsetRandomSampler(train_index)
+        valid_sampler = SubsetRandomSampler(val_index)
+        train_loader = DataLoader(spectrum_train, batch_size=param['batch_size'], sampler=train_sampler)
+        valid_loader = DataLoader(spectrum_train, batch_size=param['batch_size'], sampler=valid_sampler)
+        
+        #reset weight every fold
+        model.apply(reset_weights)
+
+        for epoch in range(param['epoch_num']):
+            model.train()
+            training_loss = 0
+            valid_loss = 0
+            num_train_correct = 0
+            num_train_examples = 0
+            for batch in train_loader:
+                optimizer.zero_grad()
+                inputs, target = batch       
+                inputs = inputs.float().to(param['device'])
+                inputs = inputs.unsqueeze(1)
+                target = target.long().to(param['device'])
+                output = model(inputs)
+                loss = criterion(output, target)
+                loss.backward()
+                optimizer.step()
+                training_loss += loss.data.item()
+                train_correct = torch.eq(torch.max(F.softmax(output,dim=1), dim=1)[1],target)
+                num_train_correct += torch.sum(train_correct).item()
+                num_train_examples += train_correct.shape[0]
+            train_accuracy = 100*(num_train_correct / num_train_examples)
+            training_loss /= len(train_loader)
+
+            model.eval()
+            num_correct = 0
+            num_examples = 0
+            for batch in valid_loader:
+                inputs, target = batch
+                inputs = inputs.float().to(param['device'])
+                inputs = inputs.unsqueeze(1)
+                output = model(inputs)
+                target = target.long().to(param['device'])
+                loss = criterion(output, target)
+                valid_loss += loss.data.item()
+                correct = torch.eq(torch.max(F.softmax(output, dim=1), dim=1)[1],target).view(-1) 
+                num_correct += torch.sum(correct).item()
+                num_examples += correct.shape[0]
+            valid_loss /= len(valid_loader)
+            val_accuracy = 100*(num_correct / num_examples)
+
+            print("Epoch:{}/{} Training Loss: {:.4f}  Test Loss: {:.4f}  Training Acc: {:.4f} %  Test Acc: {:.4f} %"
+                  .format(epoch + 1,param['epoch_num'],training_loss,valid_loss,train_accuracy,val_accuracy))
+            
+            history['training_loss'].append(training_loss)
+            history['valid_loss'].append(valid_loss)
+            history['train_accuracy'].append(train_accuracy)
+            history['val_accuracy'].append(val_accuracy)
+    
+        avg_train_loss = np.mean(history['training_loss'])
+        avg_valid_loss = np.mean(history['valid_loss'])
+        avg_train_acc = np.mean(history['train_accuracy'])
+        avg_valid_acc = np.mean(history['val_accuracy'])
+        print("Avg_valid_loss = ", avg_valid_loss)
+    
+    print('Performance of {} fold cross validation'.format(k))
+    print("Average Training Loss: {:.4f} \t Average Test Loss: {:.4f} \t Average Training Acc: {:.4f} \t Average valid Acc: {:.4f}"
+          .format(avg_train_loss,avg_valid_loss,avg_train_acc,avg_valid_acc)) 
+        
+    return avg_valid_loss
+
+    
+study = optuna.create_study(study_name='aspmodel4_CV_290623', storage='sqlite:///iraspmodel2.db', 
+                            load_if_exists=True, direction="minimize")
+study.optimize(func, n_trials=100)
+df_results = study.trials_dataframe(attrs=('number', 'value', 'params'))
+print('Best value: {} (params: {})\n'.format(study.best_value, study.best_params))
